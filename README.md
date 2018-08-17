@@ -6,7 +6,7 @@ Then take average on each metrics. Output to a text file.
 Use with another Prometheus for store the downsampled data. For we, we set the long term Prometheus retention to 2 years (Still testing).
 
 This program only output a text file on K8S empty dir. Then use a nginx in same pod to expose the output to long-term Prometheus.
-And need to set `honor_labels: true` inside long term Prometheus scrape job. Otherwise some label conflict will renamed.
+And need to set `honor_labels: true` inside long term Prometheus scrape job. Otherwise some conflicted labels will be renamed.
 
 ![Downsampler with 2 Prometheus](https://github.com/alantang888/prometheus-downsampler/blob/master/other_resource/Prometheus_Downsampler_Solution.png)
 

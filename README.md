@@ -36,7 +36,7 @@ go run prometheus-downsampler.go -s http://192.168.1.20:9090 -i 10m
 ```
 or
 ```bash
-./prometheus-downsampler
+./prometheus-downsampler -s http://192.168.1.20:9090 -i 10m
 ```
 
 ### How it work

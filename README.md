@@ -3,7 +3,7 @@ This program use for collect Prometheus data for last n minutes (default is 5 mi
 Then take average on each metrics. Output to a text file.
 
 ### Solution
-Use with another Prometheus for store the downsampled data. For we, we set the long term Prometheus retention to 2 years (Still testing).
+Use with another Prometheus for store the downsampled data. For our case, we set the long term Prometheus retention to 2 years (Still testing. Hope it will work as expected).
 
 This program only output a text file on K8S empty dir. Then use a nginx in same pod to expose the output to long-term Prometheus.
 And need to set `honor_labels: true` inside long term Prometheus scrape job. Otherwise some conflicted labels will be renamed.
@@ -55,9 +55,10 @@ This program can handle collect a longer time range data. Then group them to eve
 
 ### Why not use InfluxDB
 Because we scrape over 650K metrics every 10 second (With 2 Prometheus servers for HA). 
-We tried use remote_write to InfluxDB (Single server, not enterprise edition). 
-But it cause very high CPU usage and OOM dead very soon. Also make the operation Prometheus dead.
-So we try on different way.
+We tried use `remote_write` to InfluxDB (Single server, not enterprise edition). 
+But it cause InfluxDB very high CPU usage, no response and OOM dead very soon. Also make the operation Prometheus dead.
+So we try on different way (This project).
+Also just need a little bit modify on Grafana dashboard. No need to re-build all dashboard (Don't know why use Prometheus `remote_read` from InfluxDB for Grafana always got proxy timeout from Grafana).
 
 [Querying label values]: https://prometheus.io/docs/prometheus/latest/querying/api/#querying-label-values
 [Range Queries]: https://prometheus.io/docs/prometheus/latest/querying/api/#range-queries

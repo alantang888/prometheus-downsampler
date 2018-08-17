@@ -55,7 +55,8 @@ This program can handle collect a longer time range data. Then group them to eve
 
 ### Why not use InfluxDB
 Because we scrape over 650K metrics every 10 second (With 2 Prometheus servers for HA). 
-We tried use remote_write to InfluxDB (Single server, not enterprise edition). But it cause OOM dead very soon. Also make the operation Prometheus dead.
+We tried use remote_write to InfluxDB (Single server, not enterprise edition). 
+But it cause very high CPU usage and OOM dead very soon. Also make the operation Prometheus dead.
 So we try on different way.
 
 [Querying label values]: https://prometheus.io/docs/prometheus/latest/querying/api/#querying-label-values

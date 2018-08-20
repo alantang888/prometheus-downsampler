@@ -5,11 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	lalalog "github.com/lalamove-go/logs"
 	prometheusApi "github.com/prometheus/client_golang/api"
 	"github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/common/model"
-	cli "gopkg.in/urfave/cli.v1"
-	"log"
+	"go.uber.org/zap"
+	"gopkg.in/urfave/cli.v1"
 	"math/rand"
 	"os"
 	"runtime"
@@ -97,12 +98,13 @@ func downsampleMetrics(matrix *model.Matrix) []*metric {
 }
 
 func getMetric(api v1.API, query string, timeRange SelectRange, result chan []*metric, concurrency chan int) {
+	defer lalalog.Logger().Sync()
+
 	// download metric data from prometheus
 	rawData, err := queryRangeData(concurrency, api, query, timeRange, result)
 	if err != nil {
 		// if download from prometheus got error, ignore it.
-		// TODO: Change to logger
-		fmt.Println(err.Error())
+		lalalog.Logger().Error("Get metric error", zap.String("error", err.Error()), zap.String("target_label", query))
 		result <- []*metric{}
 		return
 	}
@@ -110,9 +112,7 @@ func getMetric(api v1.API, query string, timeRange SelectRange, result chan []*m
 	matrix, ok := rawData.(model.Matrix)
 	if !ok {
 		// if the download data not matrix type, ignore it.
-		// TODO log which metric not ok
-		errMsg := fmt.Sprintf("Query \"%v\" result not type of matrix.", query)
-		fmt.Println(errMsg)
+		lalalog.Logger().Warn("Query result not type of metrix", zap.String("target_label", query))
 		result <- []*metric{}
 		return
 	}
@@ -122,26 +122,26 @@ func getMetric(api v1.API, query string, timeRange SelectRange, result chan []*m
 }
 
 func getMetricLabels(api v1.API) model.LabelValues {
+	defer lalalog.Logger().Sync()
 	labels, getLabelErr := api.LabelValues(context.Background(), METRIC_LABEL)
 	if getLabelErr != nil {
-		// TODO: Change to logger
-		log.Panicf("Can't get labels. Error: %v\n", getLabelErr.Error())
+		lalalog.Logger().Panic("Can't get labels", zap.String("error", getLabelErr.Error()))
 	}
 	return labels
 }
 
 func processOutput(metrics *map[string][]*metric) {
+	defer lalalog.Logger().Sync()
 	// Create temp file
 	tempFilePath := fmt.Sprintf("%s_%s.tmp", outputPath, randomString(6))
 	outputFile, err := os.Create(tempFilePath)
 	if err != nil {
-		fmt.Printf("Create file error: %v", err.Error())
-		os.Exit(1)
+		lalalog.Logger().Fatal("Can't create output file", zap.String("filepath", tempFilePath), zap.String("error", err.Error()))
 	}
 	fileOpened := true
 	defer func() {
 		if fileOpened {
-			fmt.Printf("Output file not normally closed.\n")
+			lalalog.Logger().Warn("Output file not normally closed", zap.String("filepath", tempFilePath))
 			outputFile.Close()
 		}
 	}()
@@ -164,10 +164,12 @@ func processOutput(metrics *map[string][]*metric) {
 	fileOpened = false
 
 	// Copy file instead direct write to output file. avoid read garbage data when output file still writing
-	os.Rename(tempFilePath, outputPath)
+	renameErr := os.Rename(tempFilePath, outputPath)
+	if renameErr != nil {
+		lalalog.Logger().Fatal("Can't rename output file", zap.String("from_filepath", tempFilePath), zap.String("to_filepath", outputPath))
+	}
 
-	fmt.Printf("Number of metrics: %v\n", counter)
-	fmt.Printf("\t")
+	lalalog.Logger().Info("Finish write to output file", zap.Uint64("number_metrics", counter))
 	PrintMemUsage()
 
 }
@@ -184,6 +186,8 @@ func generateTimeRange() SelectRange {
 }
 
 func startNewProcess(api v1.API) {
+	defer lalalog.Logger().Sync()
+
 	// Set flag for running
 	running = true
 	defer func() {
@@ -191,20 +195,17 @@ func startNewProcess(api v1.API) {
 	}()
 	lastExecuteTime = time.Now()
 
-	// TODO: Change to logger
-	fmt.Printf("Start process at %v\n", lastExecuteTime)
+	lalalog.Logger().Info("Start process", zap.Time("start_time", lastExecuteTime))
 	PrintMemUsage()
 
 	// Get all metric name from prometheus
 	labels := getMetricLabels(api)
-	// TODO: Change to logger
-	fmt.Printf("Got %v labels.\n", labels.Len())
+	lalalog.Logger().Debug("Downloaded labels", zap.Int("number_labels", labels.Len()))
 
 	// gerate time range for range query
 	timeRange := generateTimeRange()
 
-	// TODO: Change to logger
-	fmt.Printf("Start collect data for time: %v\n", timeRange)
+	lalalog.Logger().Debug("Collect data for time", zap.String("timerange", timeRange.String()))
 
 	downloaded := make(chan []*metric)
 	concurrency := make(chan int, concurrency)
@@ -225,12 +226,11 @@ func startNewProcess(api v1.API) {
 	}
 	close(downloaded)
 	close(concurrency)
-	// TODO: Change to logger
-	fmt.Printf("Executed %v\n", time.Since(lastExecuteTime))
-	fmt.Printf("\t")
+	lalalog.Logger().Info("Metrics downloaded", zap.Time("end_time", time.Now()), zap.Duration("time_elapsed", time.Since(lastExecuteTime)))
 	PrintMemUsage()
 
 	processOutput(&metrics)
+	lalalog.Logger().Info("Finish process", zap.Time("end_time", time.Now()), zap.Duration("time_elapsed", time.Since(lastExecuteTime)))
 }
 
 func argsParserSetup() *cli.App {
@@ -287,14 +287,12 @@ func main() {
 	app.Action = argsHandler
 	err := app.Run(os.Args)
 	if err != nil {
-
-		log.Fatalf("Parse args error: ", err.Error())
+		lalalog.Logger().Fatal("Parse args error", zap.String("error", err.Error()))
 	}
 
 	client, clientErr := prometheusApi.NewClient(prometheusApi.Config{Address: sourcePrometheusUrl})
 	if clientErr != nil {
-		// TODO: Change to logger
-		log.Panicf("Can't create prometheus client. Error: %v\n", clientErr.Error())
+		lalalog.Logger().Fatal("Can't create prometheus client", zap.String("error", clientErr.Error()))
 
 	}
 	api := v1.NewAPI(client)
@@ -304,8 +302,8 @@ func main() {
 		// Start process every hour.
 		<-time.After(collectInterval)
 		if running == true {
-			fmt.Printf("Job still running. Will skip this time. Last execution time: %v\n", lastExecuteTime)
-
+			lalalog.Logger().Warn("Job still running. Will skip this time.", zap.Time("last_execution", lastExecuteTime))
+			lalalog.Logger().Sync()
 		} else {
 			go startNewProcess(api)
 		}
@@ -313,20 +311,25 @@ func main() {
 }
 
 // Below function copy from Internet
+// Copy from https://golangcode.com/print-the-current-memory-usage/
 func PrintMemUsage() {
+	defer lalalog.Logger().Sync()
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 	// For info on each, see: https://golang.org/pkg/runtime/#MemStats
-	fmt.Printf("Alloc = %v MiB", bToMb(m.Alloc))
-	fmt.Printf("\tTotalAlloc = %v MiB", bToMb(m.TotalAlloc))
-	fmt.Printf("\tSys = %v MiB", bToMb(m.Sys))
-	fmt.Printf("\tNumGC = %v\n", m.NumGC)
+	lalalog.Logger().Debug("Runtime memory status",
+		zap.Uint64("Alloc_MiB", bToMb(m.Alloc)),
+		zap.Uint64("TotalAlloc_MiB", bToMb(m.TotalAlloc)),
+		zap.Uint64("Sys_MiB", bToMb(m.Sys)),
+		zap.Uint32("NumGC", m.NumGC),
+	)
 }
 
 func bToMb(b uint64) uint64 {
 	return b / 1024 / 1024
 }
 
+// Copy from https://www.admfactory.com/how-to-generate-a-fixed-length-random-string-using-golang/
 func randomString(n int) string {
 	var letter = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 
